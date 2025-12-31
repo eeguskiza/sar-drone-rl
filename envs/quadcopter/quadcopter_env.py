@@ -52,7 +52,7 @@ class QuadcopterEnvCfg(DirectRLEnvCfg):
     episode_length_s = 10.0
     decimation = 2
     action_space = 4
-    observation_space = 12
+    observation_space = 98
     state_space = 0
     debug_vis = True
 
@@ -159,15 +159,20 @@ class QuadcopterEnv(DirectRLEnv):
         desired_pos_b, _ = subtract_frame_transforms(
             self._robot.data.root_pos_w, self._robot.data.root_quat_w, self._desired_pos_w
         )
-        obs = torch.cat(
+        base_obs = torch.cat(
             [
-                self._robot.data.root_lin_vel_b,
-                self._robot.data.root_ang_vel_b,
-                self._robot.data.projected_gravity_b,
-                desired_pos_b,
+                self._robot.data.root_lin_vel_b,      # 3
+                self._robot.data.root_ang_vel_b,      # 3
+                self._robot.data.projected_gravity_b, # 3
+                desired_pos_b,                         # 3
             ],
             dim=-1,
-        )
+        )  # Total: 12
+        
+        # Padding para transfer learning (98 - 12 = 86)
+        padding = torch.zeros(self.num_envs, 86, device=self.device)
+        obs = torch.cat([base_obs, padding], dim=-1)
+        
         observations = {"policy": obs}
         return observations
 

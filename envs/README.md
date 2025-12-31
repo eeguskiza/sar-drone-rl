@@ -1,134 +1,105 @@
-# 🎮 Environments
+# 🤖 RL Environments: Search & Rescue Drone
 
-This directory contains the reinforcement learning environments used in this project.
+This directory contains the Reinforcement Learning (RL) environments designed for the SAR Drone project. The environments are built on **Isaac Lab** and follow a progressive difficulty curriculum, ranging from basic stabilization to complex person localization missions.
+
+The ultimate goal is to train a policy capable of running on real hardware (Crazyflie 2.1) via **Sim-to-Real** transfer and having autonomous drones for rescue purposes.
 
 ---
 
-## 🚁 The Robot: Crazyflie 2.x
+## 🚁 The Platform: Crazyflie 2.1
 
 <p align="center">
-  <img src="../docs/figures/crazyflie_drone.png" alt="Crazyflie in Isaac Sim" width="600">
+<img src="../docs/figures/crazyflie_drone.png" alt="Crazyflie in Isaac Sim" width="600">
+
+
+
+
+
+<em>Simulated model of the Crazyflie 2.x in Isaac Sim</em>
 </p>
 
-The **Crazyflie 2.x** is a nano quadcopter developed by [Bitcraze](https://www.bitcraze.io/). It's widely used in robotics research due to its small size, open-source firmware, and extensive documentation.
+The **Crazyflie 2.x** is a nano-quadcopter developed by [Bitcraze](https://www.bitcraze.io/). It is the standard platform in robotics research due to its small size, open-source firmware, and agile dynamics. In this project, we simulate its rigid body dynamics and control the motors directly, replacing classic PID controllers with Neural Networks.
 
-### Specifications
+### Technical Specifications
 
-| Property | Value |
-|----------|-------|
-| Weight | 27 g |
-| Size | 92 mm motor-to-motor |
-| Max thrust | ~58 g (thrust-to-weight ≈ 2.1) |
-| Motors | 4 × coreless DC |
-| Flight time | ~7 min |
-
-### Simulated Model
-
-In Isaac Sim, the Crazyflie is modeled as an articulated body with:
-
-- **4 motor joints** (`m1_joint`, `m2_joint`, `m3_joint`, `m4_joint`)
-- **Rigid body dynamics** with accurate mass and inertia
-- **Direct force/torque control** (not motor velocity)
-
-The simulation uses a simplified actuation model where actions map to total thrust and body moments, abstracting away individual motor control for faster learning.
+| Property | Value | Notes |
+| --- | --- | --- |
+| **Weight** | 27 g | Critical for inertia modeling |
+| **Size** | 92 mm | Motor-to-motor (diagonal) |
+| **Max Thrust** | ~60 g | Thrust-to-weight ratio  |
+| **Motors** | 4 × DC Coreless | Modeled as force actuators |
+| **Simulation** | 100 Hz | Decimation=2 (Control frequency at 50 Hz) |
 
 ---
 
-## Base Environment: `quadcopter_base.py`
+## 📂 Project Structure (Curriculum Learning)
 
-Original Isaac Lab environment for Crazyflie quadcopter navigation.
+The project is divided into three incremental phases, each represented by a specific environment folder:
 
-**Source:** `IsaacLab/source/isaaclab_tasks/isaaclab_tasks/direct/quadcopter/quadcopter_env.py`
+### 1️⃣ Phase 1: Stabilization (`/quadcopter`)
 
-### Observation Space (12D)
+**Goal:** Learn to fly.
 
-| Index | Observation | Description |
-|-------|-------------|-------------|
-| 0-2 | `root_lin_vel_b` | Linear velocity in body frame (m/s) |
-| 3-5 | `root_ang_vel_b` | Angular velocity in body frame (rad/s) |
-| 6-8 | `projected_gravity_b` | Gravity vector in body frame |
-| 9-11 | `desired_pos_b` | Relative target position in body frame (m) |
+* The agent must master the drone's dynamics.
+* **Task:** Hover and reach target coordinates  in empty space.
+* **Challenge:** Overcoming inherent instability without PIDs.
 
-### Action Space (4D)
+### 2️⃣ Phase 2: Navigation (`/quadcopter_obstacles`)
 
-| Index | Action | Range | Description |
-|-------|--------|-------|-------------|
-| 0 | Thrust | [-1, 1] | Normalized total thrust |
-| 1 | Roll moment | [-1, 1] | Torque around X axis |
-| 2 | Pitch moment | [-1, 1] | Torque around Y axis |
-| 3 | Yaw moment | [-1, 1] | Torque around Z axis |
+**Goal:** Local perception and avoidance.
 
-### Reward Function
+* Introduces procedurally generated cylindrical obstacles (pillars).
+* **New Input:** The drone receives distance information (simulating LiDAR or Depth Map).
+* **Challenge:** Balancing velocity towards the goal with safety (collision avoidance).
 
-```
-reward = distance_reward + velocity_penalty + angular_penalty
+### 3️⃣ Phase 3: SAR Mission (`/quadcopter_localization`)
 
-where:
-- distance_reward = (1 - tanh(distance / 0.8)) * 15.0 * dt
-- velocity_penalty = -0.05 * ||linear_vel||² * dt
-- angular_penalty = -0.01 * ||angular_vel||² * dt
-```
+**Goal:** Search & Rescue.
 
-### Termination Conditions
-
-- **Death:** z < 0.1m (crashed) or z > 2.0m (too high)
-- **Timeout:** 10 seconds (500 steps at 50Hz control)
-
-### Task Parameters
-
-| Parameter | Value |
-|-----------|-------|
-| Episode length | 10 s |
-| Control frequency | 50 Hz (decimation=2, sim=100Hz) |
-| Goal XY range | [-2, 2] m |
-| Goal Z range | [0.5, 1.5] m |
-| Thrust-to-weight ratio | 1.9 |
+* A full scenario with hidden "persons" and complex obstacle layouts.
+* **Logic:** Implements a *coverage grid* (memory of visited locations).
+* **Reward:** Exploration (visiting new cells) + Detection (proximity to target).
 
 ---
 
-## Extended Environment: `quadcopter_obstacles.py`
+## ⚙️ Technical Environment Details
 
-Custom extension with static obstacles for curriculum learning.
+### 🔹 Action Space (Common)
 
-### Added Features
+The drone is controlled via 4 continuous values normalized to .
 
-- Cylindrical obstacles (pillars)
-- Lidar-based distance sensing (optional)
-- Collision penalties
+| Index | Action | Description | Physically |
+| --- | --- | --- | --- |
+| **0** | `Thrust` | Total vertical thrust |  |
+| **1** | `Roll` | Moment around X-axis |  |
+| **2** | `Pitch` | Moment around Y-axis |  |
+| **3** | `Yaw` | Moment around Z-axis |  |
 
-### New Observations
+### 🔹 Observation Space (Evolving)
 
-| Index | Observation | Description |
-|-------|-------------|-------------|
-| 12-N | `lidar_distances` | Raycast distances to obstacles |
+<details>
+<summary><strong>👁️ View Observation Details (Click to expand)</strong></summary>
 
-### Modified Rewards
+#### Base (12 Dimensions)
 
-- Additional penalty for obstacle proximity
-- Bonus for successful navigation through obstacles
+Used in all phases.
 
----
+1. **Linear Velocity (3):** `root_lin_vel_b` (m/s)
+2. **Angular Velocity (3):** `root_ang_vel_b` (rad/s)
+3. **Projected Gravity (3):** Gravity vector in body frame (indicates tilt/uprightness).
+4. **Relative Position (3):** Vector towards the target .
 
-## Usage
+#### Obstacles (+ N Dimensions)
 
-### Register custom environment
+Adds environmental perception.
 
-```python
-import gymnasium as gym
+* **Raycasts/Distances:** Normalized distance to the nearest  obstacles.
 
-gym.register(
-    id="Isaac-Quadcopter-Obstacles-v0",
-    entry_point="envs.quadcopter_obstacles:QuadcopterObstaclesEnv",
-    kwargs={
-        "env_cfg_entry_point": "envs.quadcopter_obstacles:QuadcopterObstaclesCfg",
-    },
-)
-```
+#### Localization (Grid + Sensor)
 
-### Train with custom environment
+Adds memory and mission logic.
 
-```bash
-isaaclab.bat -p scripts/reinforcement_learning/rsl_rl/train.py \
-    --task=Isaac-Quadcopter-Obstacles-v0 \
-    --num_envs 4096
-```
+* **Coverage Grid:** Flattened map of visited cells (Boolean/Float).
+* **Person Sensor:** Binary flag (detected/not) and direction vector if in range.
+
+</details>
