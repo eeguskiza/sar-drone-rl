@@ -1,4 +1,4 @@
-# Copyright (c) 2024 Erik Eguskiza - SAR Drone RL Project
+# Copyright (c) 2026 Alex Jauregui & Erik Eguskiza.
 # Stage 2 v5: Obstacles + Waypoints with Directional Observations
 
 from __future__ import annotations

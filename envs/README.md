@@ -1,8 +1,8 @@
-# 🤖 RL Environments: Search & Rescue Drone
+# 🤖 RL Environments: Search & Rescue Drone Curriculum
 
-This directory contains the Reinforcement Learning (RL) environments designed for the SAR Drone project. The environments are built on **Isaac Lab** and follow a progressive difficulty curriculum, ranging from basic stabilization to complex person localization missions.
+This directory contains the Reinforcement Learning (RL) environments designed for the SAR Drone project. The training pipeline is built on **Isaac Lab** and follows a strict **Curriculum Learning** approach, evolving from basic attitude control to complex, long-horizon active search missions.
 
-The ultimate goal is to train a policy capable of running on real hardware (Crazyflie 2.1) via **Sim-to-Real** transfer and having autonomous drones for rescue purposes.
+The ultimate goal is to train a robust policy capable of **Sim-to-Real** transfer, deploying autonomous rescue agents on physical Crazyflie 2.1 hardware.
 
 ---
 
@@ -10,96 +10,100 @@ The ultimate goal is to train a policy capable of running on real hardware (Craz
 
 <p align="center">
 <img src="../docs/figures/crazyflie_drone.png" alt="Crazyflie in Isaac Sim" width="600">
-
-
-
-
-
-<em>Simulated model of the Crazyflie 2.x in Isaac Sim</em>
+<em>Simulated model of the Crazyflie 2.x in Isaac Lab.</em>
 </p>
 
-The **Crazyflie 2.x** is a nano-quadcopter developed by [Bitcraze](https://www.bitcraze.io/). It is the standard platform in robotics research due to its small size, open-source firmware, and agile dynamics. In this project, we simulate its rigid body dynamics and control the motors directly, replacing classic PID controllers with Neural Networks.
+The **Crazyflie 2.1** is a nano-quadcopter (27g) developed by [Bitcraze](https://www.bitcraze.io/). We simulate its rigid body dynamics and control the motors directly via a custom mixer, replacing classic PID cascades with end-to-end Neural Networks.
 
 ### Technical Specifications
 
 | Property | Value | Notes |
 | --- | --- | --- |
-| **Weight** | 27 g | Critical for inertia modeling |
-| **Size** | 92 mm | Motor-to-motor (diagonal) |
-| **Max Thrust** | ~60 g | Thrust-to-weight ratio  |
-| **Motors** | 4 × DC Coreless | Modeled as force actuators |
-| **Simulation** | 100 Hz | Decimation=2 (Control frequency at 50 Hz) |
+| **Weight** | 27 g | Modeled with high-fidelity inertia. |
+| **Size** | 92 mm | Motor-to-motor (diagonal). |
+| **Actuation** | 4 × DC Motors | Modeled as force/torque actuators. |
+| **Sim Freq** | 100 Hz | Physics integration step. |
+| **Control Freq** | 50 Hz | Decimation = 2 (Policy update rate). |
 
 ---
 
-## 📂 Project Structure (Curriculum Learning)
+## 📂 Project Structure (Curriculum Stages)
 
-The project is divided into three incremental phases, each represented by a specific environment folder:
+The project is divided into four incremental phases. The policy weights are typically transferred from one stage to the next to accelerate convergence.
 
 ### 1️⃣ Phase 1: Stabilization (`/quadcopter`)
 
-**Goal:** Learn to fly.
+**Goal:** Flight Dynamics & Hover.
 
-* The agent must master the drone's dynamics.
-* **Task:** Hover and reach target coordinates  in empty space.
-* **Challenge:** Overcoming inherent instability without PIDs.
+* **Task:** Stabilize random initial rotations and reach a target coordinate in empty space.
+* **Key Feature:** Introduces **Zero-Padding (98 dims)** in the observation space to allow seamless architecture transfer to downstream tasks.
+* **Outcome:** A policy that understands the basic physics of the drone.
 
-### 2️⃣ Phase 2: Navigation (`/quadcopter_obstacles`)
+### 2️⃣ Phase 2: Obstacle Avoidance (`/quadcopter_obstacles`)
 
-**Goal:** Local perception and avoidance.
+**Goal:** Local Perception & Safety.
 
-* Introduces procedurally generated cylindrical obstacles (pillars).
-* **New Input:** The drone receives distance information (simulating LiDAR or Depth Map).
-* **Challenge:** Balancing velocity towards the goal with safety (collision avoidance).
+* **Task:** Navigate through a procedurally generated forest of pillars to reach sequential waypoints.
+* **Innovation:** Implements **Body-Frame Sensing** (relative vectors to nearest obstacles) instead of heavy Lidar point clouds.
+* **Refinement:** Includes a "Safety Fine-Tuning" stage that penalizes velocity vectors directed at obstacles ().
 
-### 3️⃣ Phase 3: SAR Mission (`/quadcopter_localization`)
+### 3️⃣ Phase 3: Long-Horizon Patrol (`/quadcopter_patrol`)
 
-**Goal:** Search & Rescue.
+**Goal:** Navigation Consistency & Path Memorization.
 
-* A full scenario with hidden "persons" and complex obstacle layouts.
-* **Logic:** Implements a *coverage grid* (memory of visited locations).
-* **Reward:** Exploration (visiting new cells) + Detection (proximity to target).
+* **Task:** Execute a complex **24-waypoint spiral pattern** covering a 30x30m area.
+* **Environment:** **Deterministic Forest (Seed 42)**. The obstacle layout is fixed, forcing the agent to learn/overfit the optimal trajectory through the specific geometry.
+* **Reward:** Layered curriculum bonuses (rewards increase as the drone pushes to outer spiral layers).
+
+### 4️⃣ Phase 4: Active SAR (`/quadcopter_sar`)
+
+**Goal:** Autonomous Victim Detection.
+
+* **Task:** Locate 8 randomly scattered victims within the known forest.
+* **Logic:** **Blind Search**. The agent does *not* know where victims are; it must rely on the optimized patrol path learned in Phase 3 to statistically guarantee coverage.
+* **Feedback:** Visual debugging system (Red = Undetected, Green = Rescued) and sparse detection rewards ().
 
 ---
 
 ## ⚙️ Technical Environment Details
 
-### 🔹 Action Space (Common)
+### 🔹 Action Space (Continuous)
 
-The drone is controlled via 4 continuous values normalized to .
+The policy outputs 4 continuous values normalized to . These are mapped to physical forces via a custom mixer.
 
-| Index | Action | Description | Physically |
+| Index | Action | Description | Physical Mapping |
 | --- | --- | --- | --- |
-| **0** | `Thrust` | Total vertical thrust |  |
-| **1** | `Roll` | Moment around X-axis |  |
-| **2** | `Pitch` | Moment around Y-axis |  |
-| **3** | `Yaw` | Moment around Z-axis |  |
+| **0** | `Thrust` | Total Vertical Force | Maps to  via . |
+| **1** | `Roll` | Moment around X-axis | Scaled by `moment_scale`. |
+| **2** | `Pitch` | Moment around Y-axis | Scaled by `moment_scale`. |
+| **3** | `Yaw` | Moment around Z-axis | Scaled by `moment_scale`. |
 
-### 🔹 Observation Space (Evolving)
+### 🔹 Observation Space (Evolution)
+
+The observation space is optimized for onboard inference (low dimensionality).
 
 <details>
-<summary><strong>👁️ View Observation Details (Click to expand)</strong></summary>
+<summary><strong>👁️ Click to view Observation Details</strong></summary>
 
-#### Base (12 Dimensions)
+#### Phase 1 & 2 (Transfer Mode)
 
-Used in all phases.
+* **Total:** 98 Dimensions.
+* **Content:** Base State (12) + Padding (86).
+* *Note: Phase 2 utilizes the padding slots for obstacle vectors.*
 
-1. **Linear Velocity (3):** `root_lin_vel_b` (m/s)
-2. **Angular Velocity (3):** `root_ang_vel_b` (rad/s)
-3. **Projected Gravity (3):** Gravity vector in body frame (indicates tilt/uprightness).
-4. **Relative Position (3):** Vector towards the target .
+#### Phase 3 & 4 (Optimized Mode)
 
-#### Obstacles (+ N Dimensions)
+* **Total:** 33 Dimensions (Lean Architecture).
+* **Content:**
+1. **Base State (9):** Lin Vel, Ang Vel, Gravity Vector.
+2. **Navigation (3):** Vector to current Waypoint.
+3. **Perception (20):** 5 Nearest Obstacles (Direction + Distance).
+4. **Meta (1):** Mission Progress %.
 
-Adds environmental perception.
 
-* **Raycasts/Distances:** Normalized distance to the nearest  obstacles.
-
-#### Localization (Grid + Sensor)
-
-Adds memory and mission logic.
-
-* **Coverage Grid:** Flattened map of visited cells (Boolean/Float).
-* **Person Sensor:** Binary flag (detected/not) and direction vector if in range.
 
 </details>
+
+---
+
+**Copyright (c) 2026 Alex Jauregui & Erik Eguskiza. All rights reserved.**
